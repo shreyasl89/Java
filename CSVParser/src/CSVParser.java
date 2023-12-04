@@ -14,16 +14,16 @@ import java.io.IOException;
 public class CSVParser {
 	private static class processLineResult {
 		String previousFilePath;
-		int eventCount;
+		int entryCount;
 
 		public processLineResult() {
 			previousFilePath = "";
-			eventCount = 0;
+			entryCount = 0;
 		}
 	}
 
 	private static String sourcePath = "";
-	private static int maxEventCountPerFile = 500000;
+	private static int maxEntriesPerFile = 500000;
 	private static ExecutorService executorService;
 
 	private static void processDirectory(Path directoryPath) throws IOException {
@@ -55,8 +55,10 @@ public class CSVParser {
 			System.out.println("Processing file: " + file.getName());
 			if (file.getName().endsWith(".csv.gz")) {
 				processCompressedFile(file);
-			} else {
+			} else if (file.getName().endsWith(".csv")) {
 				processUncompressedFile(file);
+			} else {
+				System.out.println("Unsupported file format");
 			}
 		}
 	}
@@ -70,7 +72,7 @@ public class CSVParser {
 		while ((lineEntry = bufferedReader.readLine()) != null) {
 
 			previousProcessLineResult = processLine(lineEntry, previousProcessLineResult);
-			previousProcessLineResult.eventCount++;
+			previousProcessLineResult.entryCount++;
 		}
 
 		bufferedReader.close();
@@ -88,35 +90,50 @@ public class CSVParser {
 		processLineResult previousProcessLineResult = new processLineResult();
 		while (fileReader.hasNext()) {
 			previousProcessLineResult = processLine(fileReader.next(), previousProcessLineResult);
-			previousProcessLineResult.eventCount++;
+			previousProcessLineResult.entryCount++;
 		}
 		fileReader.close();
 	}
 
+	// To Do: Use a simple iterator for string manipulation as opposed to using
+	// built-in methods to achieve linear time complexity
 	private static processLineResult processLine(String lineEntry, processLineResult previousProcessLineResult)
 			throws IOException {
 		String[] columns = lineEntry.split(",");
 		columns[1] = columns[1].replace("%3D", "=").replace("\"", "");
 		String[] columnParts = columns[1].split("/");
 
+		// destnPath is in format processedReports/<year>/<eventtype>/<month>/<date>
 		StringBuilder destnPath = new StringBuilder(sourcePath);
 		destnPath.append("/processedReports/").append(columnParts[1]).append("/").append(columnParts[0]).append("/")
 				.append(columnParts[2]).append("/").append(columnParts[3]);
 
+		/*
+		 * Create new csv if: 1. No csv has been created for the given date 2. current
+		 * line entry doesn't match the date as indicated on previous line entry 3. max number of entries in
+		 * previous csv has reached it's max limit
+		 */
 		if (previousProcessLineResult.previousFilePath.equals("")
 				|| !destnPath.toString()
 						.equals(previousProcessLineResult.previousFilePath.substring(0,
 								previousProcessLineResult.previousFilePath.lastIndexOf('/')))
-				|| previousProcessLineResult.eventCount >= maxEventCountPerFile) {
+				|| previousProcessLineResult.entryCount >= maxEntriesPerFile) {
 			Files.createDirectories(Paths.get(destnPath.toString()));
+
 			previousProcessLineResult.previousFilePath = destnPath.toString() + "/" + UUID.randomUUID().toString()
 					+ ".csv";
-			previousProcessLineResult.eventCount = 0;
+			previousProcessLineResult.entryCount = 0;
 
 			File tarDestn = new File(destnPath.toString() + "/archiveDestinationPath.txt");
 			if (!tarDestn.exists()) {
 				FileWriter fw = new FileWriter(tarDestn);
-				fw.write(columns[1].substring(0, columns[1].indexOf("/hr")) + "/archivedData");
+				PrintWriter pw = new PrintWriter(fw);
+
+				columns[0] = columns[0].replace("\"", "");
+				pw.println(columns[0]);
+				pw.println(columns[1].substring(0, columns[1].indexOf("/hr")) + "/archivedData");
+
+				pw.close();
 				fw.close();
 			}
 		}
@@ -167,11 +184,12 @@ public class CSVParser {
 		}
 
 		executorService.shutdown();
-		while (!executorService.isTerminated());
+		while (!executorService.isTerminated())
+			;
 
 		long endTime = System.currentTimeMillis();
 		long executionTime = endTime - startTime;
 
-		System.out.println("Parsing is complete, execution time: " + (executionTime/60000) + " minutes");
+		System.out.println("Parsing is complete, execution time: " + (executionTime / 60000) + " minutes");
 	}
 }
