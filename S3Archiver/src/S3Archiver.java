@@ -49,13 +49,13 @@ public class S3Archiver {
 			FileReader fileReader = new FileReader(file.getParent() + "/archiveDestinationPath.txt");
 			BufferedReader bufferedReader = new BufferedReader(fileReader);
 
-			String tarPath = bufferedReader.readLine() + UUID.randomUUID().toString() + ".tar";
+			String tarDestnPath = bufferedReader.readLine() + UUID.randomUUID().toString() + ".tar";
 
 			bufferedReader.close();
 			fileReader.close();
 
 			List<String> processBuilderList = initializeProcessBuilder();
-			processBuilderList.add(tarPath);
+			processBuilderList.add(tarDestnPath);
 			processBuilderList.add("-m");
 			processBuilderList.add(file.toString());
 
@@ -68,7 +68,8 @@ public class S3Archiver {
 					changeStatusToComplete(file);
 					break;
 				} catch (Exception e) {
-					System.out.println("Retrying in " + interval + " milliseconds...");
+					System.out
+							.println("Retrying to archive " + file.toString() + " in " + interval + " milliseconds...");
 					TimeUnit.MILLISECONDS.sleep(interval);
 					interval *= MULTIPLIER;
 					retryCount++;

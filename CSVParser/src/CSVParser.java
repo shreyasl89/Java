@@ -70,7 +70,6 @@ public class CSVParser {
 		String lineEntry;
 		processLineResult previousProcessLineResult = new processLineResult();
 		while ((lineEntry = bufferedReader.readLine()) != null) {
-
 			previousProcessLineResult = processLine(lineEntry, previousProcessLineResult);
 			previousProcessLineResult.entryCount++;
 		}
@@ -92,6 +91,7 @@ public class CSVParser {
 			previousProcessLineResult = processLine(fileReader.next(), previousProcessLineResult);
 			previousProcessLineResult.entryCount++;
 		}
+
 		fileReader.close();
 	}
 
@@ -103,15 +103,16 @@ public class CSVParser {
 		columns[1] = columns[1].replace("%3D", "=").replace("\"", "");
 		String[] columnParts = columns[1].split("/");
 
-		// destnPath is in format processedReports/<year>/<eventtype>/<month>/<date>
+		// destnPath is in format processedReports/<year>/<eventtype>/<month>/<date> to
+		// aid archiving based on year
 		StringBuilder destnPath = new StringBuilder(sourcePath);
 		destnPath.append("/processedReports/").append(columnParts[1]).append("/").append(columnParts[0]).append("/")
 				.append(columnParts[2]).append("/").append(columnParts[3]);
 
 		/*
-		 * Create new csv if: 1. No csv has been created for the given date 2. current
-		 * line entry doesn't match the date as indicated on previous line entry 3. max
-		 * number of entries in previous csv has reached it's max limit
+		 * Create new csv if: 1. A csv has not been created for the given date 2.
+		 * current line entry doesn't match the date as indicated on previous line entry
+		 * 3. max number of entries in previous csv has reached it's max limit
 		 */
 		if (previousProcessLineResult.previousFilePath.equals("")
 				|| !destnPath.toString()
