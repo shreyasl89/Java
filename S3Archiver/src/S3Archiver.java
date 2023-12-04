@@ -1,178 +1,129 @@
 import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileWriter;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.io.PrintWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.zip.GZIPInputStream;
 
-public class S3Archiver
-{
-	private static class processLineResult
-	{
-		String previousFilePath;
-		int eventCount;
-		
-		public processLineResult()
-		{
-			previousFilePath = "";
-			eventCount = 0;
-		}
+public class S3Archiver {
+	public static List<String> processBuilderList;
+	public static final int maxThreadCount = 15000;
+
+	private static void initializeProcessBuilder() {
+		processBuilderList = new ArrayList<String>();
+		processBuilderList.add("/Users/slakshminarayana/Documents/codebase/amazon-s3-tar-tool/bin/s3tar-darwin-amd64");
+		processBuilderList.add("--region");
+		processBuilderList.add("us-east-1");
+		processBuilderList.add("--storage-class");
+		processBuilderList.add("DEEP_ARCHIVE");
+		processBuilderList.add("-cvf");
 	}
-	private static Path sourcePath;
-	private static int maxEventCountPerFile = 500000;
-	private static ExecutorService executorService;
-	
+
 	private static void processDirectory(Path directoryPath) throws IOException {
-		
-		File directory = directoryPath.toFile();
-		if (directory.isDirectory() && directory.getName().equals("processedReports"))
-			return;
-
-        // Process only files under this directory because we have a dedicated thread to process directories 
-        for (File file : directory.listFiles()) {
-        	if (!file.isDirectory() && !file.getName().equals(".DS_Store"))
-            {
-        		processFile(file);
-            }
-        }
-    }
-	
-	private static void processFile(File file) throws IOException
-	{
-		System.out.println("Processing file: "+ file.getName());
-		GZIPInputStream gzipInputStream = new GZIPInputStream(new FileInputStream(file));
-	    BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(gzipInputStream));
-	    
-	    String lineEntry;
-	    processLineResult previousProcessLineResult = new processLineResult();
-	    while ((lineEntry = bufferedReader.readLine()) != null)
-	    {
-	    	
-	    	previousProcessLineResult = processLine(lineEntry, previousProcessLineResult);
-	    	previousProcessLineResult.eventCount++;
-	    }
-	    
-	    bufferedReader.close();
-	    gzipInputStream.close();
-	}
-	
-	private static processLineResult processLine(String lineEntry, processLineResult previousProcessLineResult) throws IOException
-	{
-		String[] columns = lineEntry.split(",");
-    	columns[1] = columns[1].replace("%3D", "=").replace("\"", "");
-    	String[] columnParts = columns[1].split("/");
-    	
-    	StringBuilder destnPath = new StringBuilder(sourcePath.toString());
-    	destnPath.append("/processedReports/")
-    				.append(columnParts[1])
-    				.append("/")
-    				.append(columnParts[0])
-    				.append("/")
-    				.append(columnParts[2])
-    				.append("/")
-    				.append(columnParts[3]);
-    		
-    	if (previousProcessLineResult.previousFilePath.equals("") 
-				|| !destnPath.toString().equals(previousProcessLineResult.previousFilePath.substring(0, previousProcessLineResult.previousFilePath.lastIndexOf('/')))
-				|| previousProcessLineResult.eventCount >= maxEventCountPerFile)
-		{
-    		Files.createDirectories(Paths.get(destnPath.toString()));
-			previousProcessLineResult.previousFilePath = destnPath.toString() + "/" + UUID.randomUUID().toString() + ".csv";
-			previousProcessLineResult.eventCount = 0;
-			
-			File tarDestn = new File(destnPath.toString() + "/archiveDestinationPath.txt");
-	    	if (!tarDestn.exists())
-	    	{
-	    		FileWriter fw = new FileWriter(tarDestn);
-	    		fw.write(columns[1].substring(0, columns[1].indexOf("/hr")) + "/archivedData");
-	    		fw.close();
-	    	}
+		// Process only files under this directory because we have a dedicated thread to
+		// process directories
+		for (File file : directoryPath.toFile().listFiles()) {
+			if (!file.isDirectory() && !file.getName().equals(".DS_Store")) {
+				processFile(file);
+			}
 		}
-        
-		FileWriter fw = new FileWriter(previousProcessLineResult.previousFilePath, true);
-		PrintWriter pw = new PrintWriter(fw);
-		
-		pw.println(lineEntry);
-        
-        pw.close();
-        fw.close();
-    	
-    	return previousProcessLineResult;
 	}
-	
-	public static void main(String[] args) throws IOException
-	{
+
+	private static void processFile(File file) {
+		if (file.getName().endsWith(".csv")) {
+			// Change to the correct source and destination
+			// Create a guid for archiveName and ensure they are unique
+			processBuilderList
+					.add("s3://telegraph-test-aws-glue/tp=billing_eu_subscriptions/archivedData/archive_Dec.tar");
+			processBuilderList.add("s3://telegraph-test-aws-glue/tp=billing_eu_subscriptions/");
+
+			ProcessBuilder pb = new ProcessBuilder(processBuilderList);
+			try {
+				if (executeProcess(pb)) {
+					changeStatusToComplete(file);
+				}
+			} catch (IOException | InterruptedException e) {
+				e.printStackTrace();
+			}
+		}
+	}
+
+	private static void changeStatusToComplete(File file) {
+		StringBuilder sb = new StringBuilder(file.toString()).append("_processed");
+		file.renameTo(new File(sb.toString()));
+	}
+
+	private static boolean executeProcess(ProcessBuilder pb) throws IOException, InterruptedException {
+		Process process = pb.start();
+		int exitCode = process.waitFor();
+		// Do retry logic
+		if (exitCode != 0) {
+			InputStream errorStream = process.getErrorStream();
+			BufferedReader reader = new BufferedReader(new InputStreamReader(errorStream));
+			String line;
+			System.out.print("Error message: ");
+			while ((line = reader.readLine()) != null) {
+				System.out.println(line);
+			}
+		}
+
+		return (exitCode == 0);
+	}
+
+	public static void main(String[] args) throws IOException {
 		long startTime = System.currentTimeMillis();
-		
-		sourcePath = Paths.get(args[0]);
-		executorService = Executors.newFixedThreadPool(Integer.valueOf(args[1]));
-		
-		// Parallelize only at directory level and not file level to ensure that we don't hit S3 prefix throttling
+
+		Path inventoryReportPath = Paths.get(args[0]);
+		ExecutorService executorService = Executors
+				.newFixedThreadPool(Math.min(maxThreadCount, Integer.parseInt(args[1])));
+		initializeProcessBuilder();
+
+		// Parallelize only at directory level and not file level to ensure that we
+		// don't hit S3 prefix throttling
 		List<Future<Void>> futures = new ArrayList<>();
-        Files.walk(sourcePath)
-                .filter(Files::isDirectory)
-                .forEach(path -> futures.add((Future<Void>) executorService.submit(() -> {
+		Files.walk(inventoryReportPath).filter(Files::isDirectory)
+				.forEach(path -> futures.add((Future<Void>) executorService.submit(() -> {
 					try {
 						// Ignore the root directory, else reports will be processed twice
-						if (path.compareTo(sourcePath) != 0 && !path.toString().contains("processedReports")) 
-						{
+						if (path.compareTo(inventoryReportPath) != 0) {
 							processDirectory(path);
 						}
 					} catch (IOException e) {
 						e.printStackTrace();
 					}
 				})));
-        
-        // Process files at root level, if any; sequentially to ensure that we don't hit S3 prefix throttling
-        for (File file : sourcePath.toFile().listFiles()) {
-        	if (!file.isDirectory() && !file.getName().equals(".DS_Store"))
-        	{
-        		processFile(file);
-        	}
-        }
 
-        for (Future<Void> future : futures) {
-            try {
+		// Process files at root level, if any; sequentially to ensure that we don't hit
+		// S3 prefix throttling
+		for (File file : inventoryReportPath.toFile().listFiles()) {
+			if (!file.isDirectory() && !file.getName().equals(".DS_Store")) {
+				processFile(file);
+			}
+		}
+
+		for (Future<Void> future : futures) {
+			try {
 				future.get();
 			} catch (InterruptedException e) {
 				e.printStackTrace();
 			} catch (ExecutionException e) {
 				e.printStackTrace();
 			}
-        }
+		}
 
-        executorService.shutdown();
-        
-        long endTime = System.currentTimeMillis();
+		executorService.shutdown();
+
+		long endTime = System.currentTimeMillis();
 		long executionTime = endTime - startTime;
 
-		System.out.println("Processing is complete, execution time: " + (executionTime/60000) + " minutes");
-        
-		//List<String> list = new ArrayList<String>();
-		
-		/*ProcessBuilder pb = new ProcessBuilder("/Users/slakshminarayana/Documents/codebase/amazon-s3-tar-tool/bin/s3tar-darwin-amd64", "--region", "us-east-1", "--storage-class", "DEEP_ARCHIVE", "-cvf", "s3://telegraph-test-aws-glue/tp=billing_eu_subscriptions/archive_Nov27.tar", "s3://telegraph-test-aws-glue/tp=billing_eu_subscriptions/");
-
-        // Start the process
-        Process process = pb.start();
-        try
-        {
-        	process.waitFor();
-		}
-        catch (InterruptedException e)
-        {
-			e.printStackTrace();
-		}*/
-    }
+		System.out.println("Archiving is complete, execution time: " + (executionTime / 60000) + " minutes");
+	}
 }
