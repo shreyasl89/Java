@@ -1,6 +1,6 @@
 import java.io.BufferedReader;
 import java.io.File;
-import java.io.IOException;
+import java.io.FileReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.file.Files;
@@ -8,28 +8,35 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ExecutionException;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 public class S3Archiver {
-	public static List<String> processBuilderList;
-	public static final int maxThreadCount = 15000;
+	private static final int MAX_THREAD_COUNT = 15000;
+	private static final int MAX_RETRIES = 3;
+	private static final long INITIAL_INTERVAL = 30000;
+	private static final double MULTIPLIER = 2;
+	private static String tarToolPath = "";
 
-	private static void initializeProcessBuilder() {
-		processBuilderList = new ArrayList<String>();
-		processBuilderList.add("/Users/slakshminarayana/Documents/codebase/amazon-s3-tar-tool/bin/s3tar-darwin-amd64");
+	private static List<String> initializeProcessBuilder() {
+		List<String> processBuilderList = new ArrayList<String>();
+
+		processBuilderList.add(tarToolPath);
 		processBuilderList.add("--region");
 		processBuilderList.add("us-east-1");
 		processBuilderList.add("--storage-class");
 		processBuilderList.add("DEEP_ARCHIVE");
 		processBuilderList.add("-cvf");
+
+		return processBuilderList;
 	}
 
-	private static void processDirectory(Path directoryPath) throws IOException {
+	private static void processDirectory(Path directoryPath) throws Exception {
 		// Process only files under this directory because we have a dedicated thread to
-		// process directories
+		// process sub-directories
 		for (File file : directoryPath.toFile().listFiles()) {
 			if (!file.isDirectory() && !file.getName().equals(".DS_Store")) {
 				processFile(file);
@@ -37,21 +44,35 @@ public class S3Archiver {
 		}
 	}
 
-	private static void processFile(File file) {
+	private static void processFile(File file) throws Exception {
 		if (file.getName().endsWith(".csv")) {
-			// Change to the correct source and destination
-			// Create a guid for archiveName and ensure they are unique
-			processBuilderList
-					.add("s3://telegraph-test-aws-glue/tp=billing_eu_subscriptions/archivedData/archive_Dec.tar");
-			processBuilderList.add("s3://telegraph-test-aws-glue/tp=billing_eu_subscriptions/");
+			FileReader fileReader = new FileReader(file.getParent() + "/archiveDestinationPath.txt");
+			BufferedReader bufferedReader = new BufferedReader(fileReader);
+
+			String tarPath = bufferedReader.readLine() + UUID.randomUUID().toString() + ".tar";
+
+			bufferedReader.close();
+			fileReader.close();
+
+			List<String> processBuilderList = initializeProcessBuilder();
+			processBuilderList.add(tarPath);
+			processBuilderList.add("-m");
+			processBuilderList.add(file.toString());
 
 			ProcessBuilder pb = new ProcessBuilder(processBuilderList);
-			try {
-				if (executeProcess(pb)) {
+			int retryCount = 0;
+			long interval = INITIAL_INTERVAL;
+			while (retryCount < MAX_RETRIES) {
+				try {
+					executeProcess(pb);
 					changeStatusToComplete(file);
+					break;
+				} catch (Exception e) {
+					System.out.println("Retrying in " + interval + " milliseconds...");
+					TimeUnit.MILLISECONDS.sleep(interval);
+					interval *= MULTIPLIER;
+					retryCount++;
 				}
-			} catch (IOException | InterruptedException e) {
-				e.printStackTrace();
 			}
 		}
 	}
@@ -61,10 +82,9 @@ public class S3Archiver {
 		file.renameTo(new File(sb.toString()));
 	}
 
-	private static boolean executeProcess(ProcessBuilder pb) throws IOException, InterruptedException {
+	private static void executeProcess(ProcessBuilder pb) throws Exception {
 		Process process = pb.start();
 		int exitCode = process.waitFor();
-		// Do retry logic
 		if (exitCode != 0) {
 			InputStream errorStream = process.getErrorStream();
 			BufferedReader reader = new BufferedReader(new InputStreamReader(errorStream));
@@ -73,18 +93,23 @@ public class S3Archiver {
 			while ((line = reader.readLine()) != null) {
 				System.out.println(line);
 			}
-		}
 
-		return (exitCode == 0);
+			throw new Exception("Error trying to archive using AWS tar tool");
+		}
 	}
 
-	public static void main(String[] args) throws IOException {
+	public static void main(String[] args) throws Exception {
 		long startTime = System.currentTimeMillis();
 
-		Path inventoryReportPath = Paths.get(args[0]);
+		if (args.length < 3) {
+			System.out.println("Please specify tarToolPath, inventoryReportPath and maximum size of thread pool");
+			return;
+		}
+
+		tarToolPath = args[0];
+		Path inventoryReportPath = Paths.get(args[1]);
 		ExecutorService executorService = Executors
-				.newFixedThreadPool(Math.min(maxThreadCount, Integer.parseInt(args[1])));
-		initializeProcessBuilder();
+				.newFixedThreadPool(Math.min(MAX_THREAD_COUNT, Integer.parseInt(args[2])));
 
 		// Parallelize only at directory level and not file level to ensure that we
 		// don't hit S3 prefix throttling
@@ -96,7 +121,7 @@ public class S3Archiver {
 						if (path.compareTo(inventoryReportPath) != 0) {
 							processDirectory(path);
 						}
-					} catch (IOException e) {
+					} catch (Exception e) {
 						e.printStackTrace();
 					}
 				})));
@@ -112,9 +137,7 @@ public class S3Archiver {
 		for (Future<Void> future : futures) {
 			try {
 				future.get();
-			} catch (InterruptedException e) {
-				e.printStackTrace();
-			} catch (ExecutionException e) {
+			} catch (Exception e) {
 				e.printStackTrace();
 			}
 		}

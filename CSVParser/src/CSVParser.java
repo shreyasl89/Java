@@ -26,7 +26,7 @@ public class CSVParser {
 	private static int maxEntriesPerFile = 500000;
 	private static ExecutorService executorService;
 
-	private static void processDirectory(Path directoryPath) throws IOException {
+	private static void processDirectory(Path directoryPath) throws Exception {
 		File directory = directoryPath.toFile();
 		if (directory.isDirectory() && directory.getName().equals("processedReports"))
 			return;
@@ -42,7 +42,7 @@ public class CSVParser {
 				executorService.submit(() -> {
 					try {
 						processFile(file);
-					} catch (IOException e) {
+					} catch (Exception e) {
 						e.printStackTrace();
 					}
 				});
@@ -50,7 +50,7 @@ public class CSVParser {
 		}
 	}
 
-	private static void processFile(File file) throws IOException {
+	private static void processFile(File file) throws Exception {
 		if (!file.getName().equals(".DS_Store")) {
 			System.out.println("Processing file: " + file.getName());
 			if (file.getName().endsWith(".csv.gz")) {
@@ -63,7 +63,7 @@ public class CSVParser {
 		}
 	}
 
-	private static void processCompressedFile(File file) throws IOException {
+	private static void processCompressedFile(File file) throws Exception {
 		GZIPInputStream gzipInputStream = new GZIPInputStream(new FileInputStream(file));
 		BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(gzipInputStream));
 
@@ -79,11 +79,11 @@ public class CSVParser {
 		gzipInputStream.close();
 	}
 
-	private static void processUncompressedFile(File file) throws IOException {
+	private static void processUncompressedFile(File file) throws Exception {
 		Scanner fileReader = null;
 		try {
 			fileReader = new Scanner(file);
-		} catch (FileNotFoundException e) {
+		} catch (Exception e) {
 			e.printStackTrace();
 		}
 
@@ -110,8 +110,8 @@ public class CSVParser {
 
 		/*
 		 * Create new csv if: 1. No csv has been created for the given date 2. current
-		 * line entry doesn't match the date as indicated on previous line entry 3. max number of entries in
-		 * previous csv has reached it's max limit
+		 * line entry doesn't match the date as indicated on previous line entry 3. max
+		 * number of entries in previous csv has reached it's max limit
 		 */
 		if (previousProcessLineResult.previousFilePath.equals("")
 				|| !destnPath.toString()
@@ -130,8 +130,9 @@ public class CSVParser {
 				PrintWriter pw = new PrintWriter(fw);
 
 				columns[0] = columns[0].replace("\"", "");
-				pw.println(columns[0]);
-				pw.println(columns[1].substring(0, columns[1].indexOf("/hr")) + "/archivedData");
+				StringBuilder stringBuilder = new StringBuilder("s3://").append(columns[0]).append("/")
+						.append(columns[1].substring(0, columns[1].indexOf("/hr"))).append("/archivedData/");
+				pw.println(stringBuilder.toString());
 
 				pw.close();
 				fw.close();
@@ -149,20 +150,13 @@ public class CSVParser {
 		return previousProcessLineResult;
 	}
 
-	public static void main(String[] args) throws IOException {
-		/*
-		 * Scanner sc = new Scanner(System.in);
-		 * 
-		 * System.out.print("Enter the path of the inventory reports: "); sourcePath =
-		 * sc.nextLine(); File directory = new File(sourcePath);
-		 * 
-		 * System.out.print("Enter the maximum number of concurrent threads: ");
-		 * ExecutorService executorService = Executors.newFixedThreadPool(sc.nextInt());
-		 * 
-		 * sc.close();
-		 */
-
+	public static void main(String[] args) throws Exception {
 		long startTime = System.currentTimeMillis();
+
+		if (args.length < 2) {
+			System.out.println("Please specify inventoryReportPath and maximum size of thread pool");
+			return;
+		}
 
 		sourcePath = args[0];
 		executorService = Executors.newFixedThreadPool(Integer.valueOf(args[1]));
@@ -175,7 +169,7 @@ public class CSVParser {
 					executorService.submit(() -> {
 						try {
 							processFile(path.toFile());
-						} catch (IOException e) {
+						} catch (Exception e) {
 							e.printStackTrace();
 						}
 					});
