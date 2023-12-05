@@ -8,8 +8,6 @@ import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.zip.GZIPInputStream;
-import java.io.File;
-import java.io.IOException;
 
 public class CSVParser {
 	private static class processLineResult {
@@ -50,15 +48,24 @@ public class CSVParser {
 		}
 	}
 
-	private static void processFile(File file) throws Exception {
+	private static void processFile(File file) {
 		if (!file.getName().equals(".DS_Store")) {
 			System.out.println("Processing file: " + file.getName());
 			if (file.getName().endsWith(".csv.gz")) {
-				processCompressedFile(file);
+				try {
+					processCompressedFile(file);
+				} catch (Exception e) {
+					System.out.println(e.getMessage() + " for " + file.getName() + " continuing with next file...");
+				}
 			} else if (file.getName().endsWith(".csv")) {
-				processUncompressedFile(file);
+				try {
+					processUncompressedFile(file);
+				} catch (Exception e) {
+					System.out.println(e.getMessage() + " for " + file.getName() + " continuing with next file...");
+				}
+
 			} else {
-				System.out.println("Unsupported file format");
+				System.out.println("Unsupported file format: " + file.getName());
 			}
 		}
 	}
@@ -98,13 +105,15 @@ public class CSVParser {
 	// To Do: Use a simple iterator for string manipulation as opposed to using
 	// built-in methods to achieve linear time complexity
 	private static processLineResult processLine(String lineEntry, processLineResult previousProcessLineResult)
-			throws IOException {
+			throws Exception {
 		String[] columns = lineEntry.split(",");
 		columns[1] = columns[1].replace("%3D", "=").replace("\"", "");
 		String[] columnParts = columns[1].split("/");
 
 		// destnPath is in format processedReports/<year>/<eventtype>/<month>/<date> to
 		// aid archiving based on year
+		if (columnParts.length < 3)
+			throw new Exception("File hierarchy is incorrect");
 		StringBuilder destnPath = new StringBuilder(sourcePath);
 		destnPath.append("/processedReports/").append(columnParts[1]).append("/").append(columnParts[0]).append("/")
 				.append(columnParts[2]).append("/").append(columnParts[3]);
