@@ -46,6 +46,7 @@ public class S3Archiver {
 
 	private static void processFile(File file) throws Exception {
 		if (file.getName().endsWith(".csv")) {
+			System.out.println("Trying to archive file: " + file.getPath());
 			FileReader fileReader = new FileReader(file.getParent() + "/archiveDestinationPath.txt");
 			BufferedReader bufferedReader = new BufferedReader(fileReader);
 
@@ -66,8 +67,17 @@ public class S3Archiver {
 				try {
 					executeProcess(pb);
 					changeStatusToComplete(file);
+					System.out.println("Successfully archived " + file.getPath());
 					break;
 				} catch (Exception e) {
+					if (e.getMessage().contains("ExpiredToken")) {
+						System.exit(1);
+					}
+					if (e.getMessage().contains("less than 5MB")) {
+						System.out.println("Skipping " + file.getPath() + " as it failed to archive due to size limit");
+						break;
+					}
+					System.out.println(e.getMessage());
 					System.out
 							.println("Retrying to archive " + file.toString() + " in " + interval + " milliseconds...");
 					TimeUnit.MILLISECONDS.sleep(interval);
@@ -90,12 +100,12 @@ public class S3Archiver {
 			InputStream errorStream = process.getErrorStream();
 			BufferedReader reader = new BufferedReader(new InputStreamReader(errorStream));
 			String line;
-			System.out.print("Error message: ");
+			StringBuilder sb = new StringBuilder();
 			while ((line = reader.readLine()) != null) {
-				System.out.println(line);
+				sb.append(line);
 			}
 
-			throw new Exception("Error trying to archive using AWS tar tool");
+			throw new Exception("Error trying to archive using AWS tar tool: " + sb.toString());
 		}
 	}
 

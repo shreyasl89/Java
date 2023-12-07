@@ -3,7 +3,6 @@ import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Scanner;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -48,58 +47,36 @@ public class CSVParser {
 		}
 	}
 
-	private static void processFile(File file) {
+	private static void processFile(File file) throws Exception {
 		if (!file.getName().equals(".DS_Store")) {
 			System.out.println("Processing file: " + file.getName());
+			BufferedReader bufferedReader = null;
+			GZIPInputStream gzipInputStream = null;
 			if (file.getName().endsWith(".csv.gz")) {
-				try {
-					processCompressedFile(file);
-				} catch (Exception e) {
-					System.out.println(e.getMessage() + " for " + file.getName() + " continuing with next file...");
-				}
+				gzipInputStream = new GZIPInputStream(new FileInputStream(file));
+				bufferedReader = new BufferedReader(new InputStreamReader(gzipInputStream));
 			} else if (file.getName().endsWith(".csv")) {
-				try {
-					processUncompressedFile(file);
-				} catch (Exception e) {
-					System.out.println(e.getMessage() + " for " + file.getName() + " continuing with next file...");
-				}
-
+				bufferedReader = new BufferedReader(new FileReader(file));
 			} else {
 				System.out.println("Unsupported file format: " + file.getName());
+				return;
 			}
+
+			try {
+				String lineEntry;
+				processLineResult previousProcessLineResult = new processLineResult();
+				while ((lineEntry = bufferedReader.readLine()) != null) {
+					previousProcessLineResult = processLine(lineEntry, previousProcessLineResult);
+					previousProcessLineResult.entryCount++;
+				}
+			} catch (Exception e) {
+				System.out.println(e.getMessage() + " for " + file.getName() + " continuing with next file...");
+			}
+
+			bufferedReader.close();
+			if (gzipInputStream != null)
+				gzipInputStream.close();
 		}
-	}
-
-	private static void processCompressedFile(File file) throws Exception {
-		GZIPInputStream gzipInputStream = new GZIPInputStream(new FileInputStream(file));
-		BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(gzipInputStream));
-
-		String lineEntry;
-		processLineResult previousProcessLineResult = new processLineResult();
-		while ((lineEntry = bufferedReader.readLine()) != null) {
-			previousProcessLineResult = processLine(lineEntry, previousProcessLineResult);
-			previousProcessLineResult.entryCount++;
-		}
-
-		bufferedReader.close();
-		gzipInputStream.close();
-	}
-
-	private static void processUncompressedFile(File file) throws Exception {
-		Scanner fileReader = null;
-		try {
-			fileReader = new Scanner(file);
-		} catch (Exception e) {
-			e.printStackTrace();
-		}
-
-		processLineResult previousProcessLineResult = new processLineResult();
-		while (fileReader.hasNext()) {
-			previousProcessLineResult = processLine(fileReader.next(), previousProcessLineResult);
-			previousProcessLineResult.entryCount++;
-		}
-
-		fileReader.close();
 	}
 
 	// To Do: Use a simple iterator for string manipulation as opposed to using
