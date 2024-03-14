@@ -21,7 +21,7 @@ public class S3Archiver {
 	private static final double MULTIPLIER = 2;
 	private static String tarToolPath = "";
 
-	private static List<String> initializeProcessBuilder() {
+	private static List<String> initializeArchivalProcessBuilder() {
 		List<String> processBuilderList = new ArrayList<String>();
 
 		processBuilderList.add(tarToolPath);
@@ -29,7 +29,19 @@ public class S3Archiver {
 		processBuilderList.add("us-east-1");
 		processBuilderList.add("--storage-class");
 		processBuilderList.add("DEEP_ARCHIVE");
+		processBuilderList.add("--concat-in-memory");
+		processBuilderList.add("--urldecode");
 		processBuilderList.add("-cvf");
+
+		return processBuilderList;
+	}
+
+	private static List<String> initializeValidateProcessBuilder() {
+		List<String> processBuilderList = new ArrayList<String>();
+
+		processBuilderList.add("/usr/bin/aws");
+		processBuilderList.add("s3");
+		processBuilderList.add("ls");
 
 		return processBuilderList;
 	}
@@ -55,7 +67,7 @@ public class S3Archiver {
 			bufferedReader.close();
 			fileReader.close();
 
-			List<String> processBuilderList = initializeProcessBuilder();
+			List<String> processBuilderList = initializeArchivalProcessBuilder();
 			processBuilderList.add(tarDestnPath);
 			processBuilderList.add("-m");
 			processBuilderList.add(file.toString());
@@ -66,7 +78,7 @@ public class S3Archiver {
 			while (retryCount < MAX_RETRIES) {
 				try {
 					executeProcess(pb);
-					changeStatusToComplete(file);
+					validateCompletion(tarDestnPath, file);
 					System.out.println("Successfully archived " + file.getPath());
 					break;
 				} catch (Exception e) {
@@ -77,9 +89,8 @@ public class S3Archiver {
 						System.out.println("Skipping " + file.getPath() + " as it failed to archive due to size limit");
 						break;
 					}
-					System.out.println(e.getMessage());
-					System.out
-							.println("Retrying to archive " + file.toString() + " in " + interval + " milliseconds...");
+					System.out.println(e.getMessage() + ". Retrying to archive " + file.toString() + " in " + interval
+							+ " milliseconds...");
 					TimeUnit.MILLISECONDS.sleep(interval);
 					interval *= MULTIPLIER;
 					retryCount++;
@@ -88,9 +99,19 @@ public class S3Archiver {
 		}
 	}
 
-	private static void changeStatusToComplete(File file) {
-		StringBuilder sb = new StringBuilder(file.toString()).append("_processed");
-		file.renameTo(new File(sb.toString()));
+	private static void validateCompletion(String finalTarFile, File file) {
+		List<String> processBuilderList = initializeValidateProcessBuilder();
+		processBuilderList.add(finalTarFile);
+
+		ProcessBuilder pb = new ProcessBuilder(processBuilderList);
+		try {
+			executeProcess(pb);
+
+			StringBuilder sb = new StringBuilder(file.toString()).append("_processed");
+			file.renameTo(new File(sb.toString()));
+		} catch (Exception e) {
+			System.out.println(e.getMessage());
+		}
 	}
 
 	private static void executeProcess(ProcessBuilder pb) throws Exception {
@@ -105,7 +126,8 @@ public class S3Archiver {
 				sb.append(line);
 			}
 
-			throw new Exception("Error trying to archive using AWS tar tool: " + sb.toString());
+			String errorMsg = (sb.length() != 0) ? sb.toString() : "File not found";
+			throw new Exception("Error: " + errorMsg);
 		}
 	}
 
