@@ -171,6 +171,6 @@ public class CSVParser {
 		long endTime = System.currentTimeMillis();
 		long executionTime = endTime - startTime;
 
-		System.out.println("Parsing is complete, execution time: " + (executionTime / 60000) + " minutes");
+		System.out.println("Parsing is complete, execution time: " + (executionTime / 60000.0) + " minutes");
 	}
 }
