@@ -18,7 +18,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public class S3Archiver {
-	private static final int MAX_THREAD_COUNT = 15000;
+	private static final int MAX_THREAD_COUNT = 1000;
 	private static final int MAX_RETRIES = 3;
 	private static final long INITIAL_INTERVAL = 30000;
 	private static final double MULTIPLIER = 2;
@@ -77,12 +77,12 @@ public class S3Archiver {
 			int retryCount = 0;
 			long interval = INITIAL_INTERVAL;
 			while (retryCount < MAX_RETRIES) {
-				archive: try {
+				try {
 					executeProcess(pb);
 					addTagToTar(tarDestnPath);
 					markArchivalComplete(file);
-					System.out.println("Successfully archived " + file.getPath());
-					break archive;
+					System.out.println("Successfully archived: " + file.getPath());
+					break;
 				} catch (Exception e) {
 					if (e.getMessage().contains("ExpiredToken")) {
 						System.exit(1);
@@ -92,7 +92,7 @@ public class S3Archiver {
 					}
 					if (e.getMessage().contains("less than 5MB")) {
 						System.out.println("Skipping " + file.getPath() + " as it failed to archive due to size limit");
-						break archive;
+						break;
 					}
 					System.out.println(e.getMessage() + ". Retrying to archive " + file.toString() + " in " + interval
 							+ " milliseconds...");
