@@ -82,7 +82,7 @@ public class S3Archiver {
 					addTagToTar(tarDestnPath);
 					markArchivalComplete(file);
 					System.out.println("Successfully archived " + file.getPath());
-					break;
+					break archive;
 				} catch (Exception e) {
 					if (e.getMessage().contains("ExpiredToken")) {
 						System.exit(1);
