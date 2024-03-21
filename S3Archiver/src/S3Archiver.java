@@ -14,6 +14,9 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
 public class S3Archiver {
 	private static final int MAX_THREAD_COUNT = 15000;
 	private static final int MAX_RETRIES = 3;
@@ -27,8 +30,6 @@ public class S3Archiver {
 		processBuilderList.add(tarToolPath);
 		processBuilderList.add("--region");
 		processBuilderList.add("us-east-1");
-		processBuilderList.add("--storage-class");
-		processBuilderList.add("DEEP_ARCHIVE");
 		processBuilderList.add("--concat-in-memory");
 		processBuilderList.add("--urldecode");
 		processBuilderList.add("-cvf");
@@ -36,12 +37,13 @@ public class S3Archiver {
 		return processBuilderList;
 	}
 
-	private static List<String> initializeValidateProcessBuilder() {
+	private static List<String> initializeObjectTaggingProcessBuilder() {
 		List<String> processBuilderList = new ArrayList<String>();
 
 		processBuilderList.add("/usr/bin/aws");
-		processBuilderList.add("s3");
-		processBuilderList.add("ls");
+		processBuilderList.add("s3api");
+		processBuilderList.add("put-object-tagging");
+		processBuilderList.add("--bucket");
 
 		return processBuilderList;
 	}
@@ -59,11 +61,10 @@ public class S3Archiver {
 	private static void processFile(File file) throws Exception {
 		if (file.getName().endsWith(".csv")) {
 			System.out.println("Trying to archive file: " + file.getPath());
+
 			FileReader fileReader = new FileReader(file.getParent() + "/archiveDestinationPath.txt");
 			BufferedReader bufferedReader = new BufferedReader(fileReader);
-
 			String tarDestnPath = bufferedReader.readLine() + UUID.randomUUID().toString() + ".tar";
-
 			bufferedReader.close();
 			fileReader.close();
 
@@ -76,18 +77,22 @@ public class S3Archiver {
 			int retryCount = 0;
 			long interval = INITIAL_INTERVAL;
 			while (retryCount < MAX_RETRIES) {
-				try {
+				archive: try {
 					executeProcess(pb);
-					validateCompletion(tarDestnPath, file);
+					addTagToTar(tarDestnPath);
+					markArchivalComplete(file);
 					System.out.println("Successfully archived " + file.getPath());
 					break;
 				} catch (Exception e) {
 					if (e.getMessage().contains("ExpiredToken")) {
 						System.exit(1);
 					}
+					if (e.getMessage().contains("AccessDenied")) {
+						System.exit(1);
+					}
 					if (e.getMessage().contains("less than 5MB")) {
 						System.out.println("Skipping " + file.getPath() + " as it failed to archive due to size limit");
-						break;
+						break archive;
 					}
 					System.out.println(e.getMessage() + ". Retrying to archive " + file.toString() + " in " + interval
 							+ " milliseconds...");
@@ -99,19 +104,30 @@ public class S3Archiver {
 		}
 	}
 
-	private static void validateCompletion(String finalTarFile, File file) {
-		List<String> processBuilderList = initializeValidateProcessBuilder();
-		processBuilderList.add(finalTarFile);
+	private static void addTagToTar(String finalTarFile) throws Exception {
+		String[] pathComponents = finalTarFile.split("/", 4);
+		JSONObject tag = new JSONObject();
+		tag.put("Key", "to-storage-class");
+		tag.put("Value", "GDA");
+		JSONArray tagSet = new JSONArray();
+		tagSet.put(tag);
+		JSONObject finalTag = new JSONObject();
+		finalTag.put("TagSet", tagSet);
+
+		List<String> processBuilderList = initializeObjectTaggingProcessBuilder();
+		processBuilderList.add(pathComponents[2]);
+		processBuilderList.add("--key");
+		processBuilderList.add(pathComponents[3]);
+		processBuilderList.add("--tagging");
+		processBuilderList.add(finalTag.toString());
 
 		ProcessBuilder pb = new ProcessBuilder(processBuilderList);
-		try {
-			executeProcess(pb);
+		executeProcess(pb);
+	}
 
-			StringBuilder sb = new StringBuilder(file.toString()).append("_processed");
-			file.renameTo(new File(sb.toString()));
-		} catch (Exception e) {
-			System.out.println(e.getMessage());
-		}
+	private static void markArchivalComplete(File file) {
+		StringBuilder sb = new StringBuilder(file.toString()).append("_processed");
+		file.renameTo(new File(sb.toString()));
 	}
 
 	private static void executeProcess(ProcessBuilder pb) throws Exception {
@@ -126,8 +142,7 @@ public class S3Archiver {
 				sb.append(line);
 			}
 
-			String errorMsg = (sb.length() != 0) ? sb.toString() : "File not found";
-			throw new Exception("Error: " + errorMsg);
+			throw new Exception("Error: " + sb.toString());
 		}
 	}
 
