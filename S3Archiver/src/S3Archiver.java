@@ -159,6 +159,11 @@ public class S3Archiver {
 		ExecutorService executorService = Executors
 				.newFixedThreadPool(Math.min(MAX_THREAD_COUNT, Integer.parseInt(args[2])));
 
+		if (!Files.exists(inventoryReportPath)) {
+			System.out.println("Please enter a valid inventory path");
+			System.exit(1);
+		}
+
 		// Parallelize only at directory level and not file level to ensure that we
 		// don't hit S3 prefix throttling
 		List<Future<Void>> futures = new ArrayList<>();
