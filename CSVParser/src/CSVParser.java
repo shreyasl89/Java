@@ -69,7 +69,7 @@ public class CSVParser {
 					previousProcessLineResult = processLine(lineEntry, previousProcessLineResult);
 					previousProcessLineResult.entryCount++;
 				}
-				markArchivalComplete(file);
+				markParsingComplete(file);
 			} catch (Exception e) {
 				System.out.println(e.getMessage() + " for " + file.getName() + " continuing with next file...");
 			}
@@ -80,7 +80,7 @@ public class CSVParser {
 		}
 	}
 	
-	private static void markArchivalComplete(File file) {
+	private static void markParsingComplete(File file) {
 		StringBuilder sb = new StringBuilder(file.toString()).append("_processed");
 		file.renameTo(new File(sb.toString()));
 	}
