@@ -69,6 +69,7 @@ public class CSVParser {
 					previousProcessLineResult = processLine(lineEntry, previousProcessLineResult);
 					previousProcessLineResult.entryCount++;
 				}
+				markArchivalComplete(file);
 			} catch (Exception e) {
 				System.out.println(e.getMessage() + " for " + file.getName() + " continuing with next file...");
 			}
@@ -77,6 +78,11 @@ public class CSVParser {
 			if (gzipInputStream != null)
 				gzipInputStream.close();
 		}
+	}
+	
+	private static void markArchivalComplete(File file) {
+		StringBuilder sb = new StringBuilder(file.toString()).append("_processed");
+		file.renameTo(new File(sb.toString()));
 	}
 
 	// To Do: Use a simple iterator for string manipulation as opposed to using
